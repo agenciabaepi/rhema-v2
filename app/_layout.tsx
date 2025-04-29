@@ -8,6 +8,10 @@ import { useColorScheme } from 'react-native';
 import { useFonts } from 'expo-font';
 import { onAuthStateChanged } from 'firebase/auth'; // <--- precisa disso
 import { auth } from '../services/firebaseConfig'; // <--- e disso (onde você configurou o Firebase)
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+
 
 SplashScreen.preventAutoHideAsync();
 
@@ -35,20 +39,26 @@ export default function RootLayout() {
   if (!loaded || isLoggedIn === null) return null;
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <StatusBar style="auto" />
-      <Stack screenOptions={{ headerShown: false }}>
-        {isLoggedIn ? (
-          <Stack.Screen name="(tabs)" />
-        ) : (
-          <>
-           <Stack.Screen name="index" />
-          <Stack.Screen name="welcome" />
-          <Stack.Screen name="login" />
-          <Stack.Screen name="cadastro" />
-          </>
-        )}
-      </Stack>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+
+    <BottomSheetModalProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <StatusBar style="auto" />
+        <Stack screenOptions={{ headerShown: false }}>
+          {isLoggedIn ? (
+            <Stack.Screen name="(tabs)" />
+          ) : (
+            <>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="welcome" />
+              <Stack.Screen name="login" />
+              <Stack.Screen name="cadastro" />
+            </>
+          )}
+        </Stack>
+      </ThemeProvider>
+    </BottomSheetModalProvider>
+    </GestureHandlerRootView>
+
   );
 }

@@ -2,14 +2,16 @@
   "expo": {
     "name": "app-rhema-v2",
     "slug": "app-rhema-v2",
-    "version": "1.0.0",
+    "version": "1.1.0",
+    "runtimeVersion": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.agenciabaepi.app-rhema-v2"
     },
     "android": {
       "adaptiveIcon": {
@@ -36,6 +38,18 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "54bb6e9d-10e7-4772-a76f-322efe34a239"
+      }
+    },
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/54bb6e9d-10e7-4772-a76f-322efe34a239"
     }
   }
 }
