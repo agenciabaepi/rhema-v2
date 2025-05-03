@@ -1,17 +1,23 @@
 {
   "expo": {
-    "name": "app-rhema-v2",
+    "name": "Rhema Gestão",
     "slug": "app-rhema-v2",
-    "version": "1.1.0",
+    "version": "1.1.1",
+    "sdkVersion": "52.0.0",
     "runtimeVersion": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
+      "newArchEnabled": false,
+      "buildNumber": "21",
       "supportsTablet": true,
-      "bundleIdentifier": "com.agenciabaepi.app-rhema-v2"
+      "bundleIdentifier": "com.agenciabaepi.app-rhema-v2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -25,6 +31,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "expo-notifications",
       "expo-router",
       [
         "expo-splash-screen",
@@ -34,10 +41,14 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-font",
+      "expo-video"
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "newArchEnabled": false
     },
     "extra": {
       "router": {
@@ -47,9 +58,9 @@
         "projectId": "54bb6e9d-10e7-4772-a76f-322efe34a239"
       }
     },
-    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/54bb6e9d-10e7-4772-a76f-322efe34a239"
-    }
+    },
+    "owner": "agenciabaepi"
   }
 }

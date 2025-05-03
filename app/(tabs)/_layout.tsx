@@ -8,6 +8,8 @@ import Favoritos from '../favoritos';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../../services/firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';
+import Toast from 'react-native-toast-message';
+
 
 const Drawer = createDrawerNavigator();
 const PRIMARY_COLOR = '#D68536';
