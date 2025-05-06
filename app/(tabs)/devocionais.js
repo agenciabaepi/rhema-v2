@@ -1,4 +1,6 @@
 import React, { useRef } from 'react';
+import { Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import LottieView from 'lottie-react-native';
 import { KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Pressable, Platform, Alert, Animated, TextInput } from 'react-native';
 import { Image as ExpoImage } from 'react-native';
@@ -11,6 +13,9 @@ import { app } from '../../services/firebaseConfig'; // ajuste o caminho conform
 import * as ImagePicker from 'expo-image-picker';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { FlatList } from 'react-native';
+import ModalAudioDevocional from '../../components/ModalAudioDevocional';
+
+
 
 
 
@@ -20,6 +25,7 @@ import { FlatList } from 'react-native';
 
 
 export default function Devocional() {
+  const router = useRouter();
   // Animated opacity for modal header
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const [modalVisible, setModalVisible] = useState(false);
@@ -71,25 +77,35 @@ export default function Devocional() {
   const [mostrarHeaderFixo, setMostrarHeaderFixo] = useState(false);
 
   const [carregando, setCarregando] = useState(false);
+  const [modalAudioVisible, setModalAudioVisible] = useState(false);
+
+
+
+
+
+
+
+
   // Função para escolher imagem (corrigida para estar dentro do componente)
   const escolherImagem = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão negada', 'Você precisa permitir acesso à galeria para selecionar imagens.');
+      return;
+    }
+  
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.7,
     });
-
-    if (!result.canceled) {
+  
+    if (!result.canceled && result.assets?.length > 0) {
       setImagemSelecionada(result.assets[0].uri);
     }
   };
 
-
-
-
-
-  
 
   // Animated scale values for cards
   const escalaCards = useRef({}).current;
@@ -257,6 +273,7 @@ export default function Devocional() {
     setDevocionalReagido(id);
     animarCard(id);
     setEmojiPopupVisible(true);
+    setCardFocadoId(null);
     setCardFocadoId(id);
     fadeAnim.setValue(0);
     Animated.timing(fadeAnim, {
@@ -264,6 +281,7 @@ export default function Devocional() {
       duration: 200,
       useNativeDriver: true,
     }).start();
+    
   };
 
     // Carrega o nível do usuário logado e define a permissão para cadastrar devocional
@@ -285,23 +303,37 @@ export default function Devocional() {
     }, []);
 
   // Carrega devocionais do Firestore em tempo real
-  useEffect(() => {
-    const db = getFirestore(app);
-    const unsubscribe = onSnapshot(
-      collection(db, 'devocionais'),
-      (snapshot) => {
-        const lista = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setDevocionais(lista);
-      },
-      (error) => {
-        console.error('Erro ao buscar devocionais:', error);
-      }
-    );
-    return () => unsubscribe();
-  }, []);
+
+useEffect(() => {
+  const db = getFirestore(app);
+  const unsubscribe = onSnapshot(
+    collection(db, 'devocionais'),
+    async (snapshot) => {
+      const lista = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      // Pré-carrega imagens (salva em cache)
+      setDevocionais(lista); // Primeiro exibe os dados
+
+// Depois tenta pré-carregar em background, sem travar a UI
+      lista.forEach(dev => {
+        if (dev.imagem) {
+          ExpoImage.prefetch(dev.imagem).catch(err => {
+            console.warn('Erro ao pré-carregar imagem:', err);
+          });
+        }
+      });
+
+      setDevocionais(lista);
+    },
+    (error) => {
+      console.error('Erro ao buscar devocionais:', error);
+    }
+  );
+  return () => unsubscribe();
+}, []);
 
   // Seleciona o devocional mais recente como destaque
   useEffect(() => {
@@ -335,6 +367,37 @@ export default function Devocional() {
       console.error('Erro ao marcar como concluído:', error);
     }
   };
+  // useEffect para animar expansão/retração dos cards do devocional do dia
+  useEffect(() => {
+    if (cardFocadoId && escalaCards[cardFocadoId]) {
+      Animated.timing(escalaCards[cardFocadoId], {
+        toValue: 230,
+        duration: 300,
+        useNativeDriver: false,
+      }).start();
+    } else {
+      Object.entries(escalaCards).forEach(([id, anim]) => {
+        Animated.timing(anim, {
+          toValue: 160,
+          duration: 300,
+          useNativeDriver: false,
+        }).start();
+      });
+    }
+  }, [cardFocadoId]);
+
+  // Adicionando variáveis hoje e hojeStr para uso no efeito do devocional do dia
+  const hoje = new Date();
+  const hojeStr = hoje.toLocaleDateString('pt-BR');
+  // Efeito para selecionar automaticamente o devocional do dia
+  useEffect(() => {
+    if (devocionais.length > 0) {
+      const encontrado = devocionais.find(d => d.data === hojeStr);
+      if (encontrado) {
+        setDevocionalDoDia(encontrado.id);
+      }
+    }
+  }, [devocionais]);
 
   useEffect(() => {
     const buscarConcluidos = async () => {
@@ -350,6 +413,28 @@ export default function Devocional() {
     buscarConcluidos();
   }, []);
 
+  useEffect(() => {
+    const unsubscribeBlur = router.addListener?.('blur', () => {
+      setCardFocadoId(null);
+      setModalVisible(false);
+    });
+
+    const unsubscribeFocus = router.addListener?.('focus', () => {
+      setCardFocadoId(null);
+    });
+
+    return () => {
+      unsubscribeBlur?.();
+      unsubscribeFocus?.();
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (modalCadastroVisible) {
+      setCardFocadoId(null);
+    }
+  }, [modalCadastroVisible]);
+
   return (
     <>
       <View style={styles.container}>
@@ -358,135 +443,152 @@ export default function Devocional() {
             <Text style={styles.botaoCadastrarTexto}>Cadastrar Devocional do Dia</Text>
           </TouchableOpacity>
         )}
-        <ScrollView style={{ marginTop: 20 }}>
-          <Animated.View
-            style={{
-              transform: [{ scale: escalaCards['0'] || new Animated.Value(1) }],
-              opacity: 1,
-              height: 'auto',
-            }}
-          >
-            {reacoes['0'] && cardFocadoId !== '0' && (
-              <View style={styles.reacoesFixas}>
-                {Object.entries(reacoes['0']).map(([emoji, count]) => (
-                  <Text key={emoji} style={styles.reacaoItem}>
-                    {emoji} {count}
-                  </Text>
-                ))}
-              </View>
-            )}
-          </Animated.View>
-          {devocionalDoDia && (() => {
-            const dev = devocionais.find((d) => d.id === devocionalDoDia);
-            if (!dev) return null;
-            return (
-              <View key={dev.id}>
-                <Animated.View
-                  style={{
-                    transform: [{ scale: escalaCards[dev.id] || new Animated.Value(1) }],
-                    opacity: 1,
-                    height: 'auto',
-                  }}
-                >
-                  <TouchableOpacity
-                    style={styles.cardDia}
-                    onPress={() => {
-                      setDevocionalSelecionado(dev);
-                      setModalVisible(true);
+        <View style={{ marginTop: 16, marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            {/* Bolinhas dos dias da semana */}
+            {(() => {
+              const hoje = new Date();
+              const hojeStr = hoje.toLocaleDateString('pt-BR');
+              const diaSemanaAtual = hoje.getDay(); // 0 = domingo, 1 = segunda, ...
+              return (
+                [...Array(7)].map((_, index) => {
+                  const data = new Date();
+                  data.setDate(hoje.getDate() - (hoje.getDay() - index)); // calcula data exata de cada dia da semana
+                  const dia = data.getDate();
+                  const mes = data.getMonth() + 1;
+                  const diaStr = `${('0'+dia).slice(-2)}/${('0'+mes).slice(-2)}/${data.getFullYear()}`;
+                  const diaSemana = data.toLocaleDateString('pt-BR', { weekday: 'short' }).toUpperCase();
+                  const encontrado = devocionais.find(d => d.data === diaStr);
+                  const selecionado = index === diaSemanaAtual;
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => {
+                        if (encontrado) {
+                          setDevocionalDoDia(encontrado.id);
+                        }
+                      }}
+                      style={{
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 2,
+                        borderColor: selecionado ? '#d68536' : '#E5E7EB',
+                        borderRadius: 24,
+                        width: 40,
+                        height: 40,
+                        backgroundColor: selecionado ? '#d68536' : '#F3F4F6'
+                      }}
+                    >
+                      <Text style={{ color: selecionado ? '#fff' : '#9CA3AF', fontSize: 10 }}>{diaSemana}</Text>
+                    </TouchableOpacity>
+                  );
+                })
+              );
+            })()}
+          </View>
+        </View>
+        <Pressable
+          onPressOut={(e) => {
+            if (cardFocadoId) {
+              setCardFocadoId(null);
+            }
+          }}
+          style={{ flex: 1 }}
+        >
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {/* Removido: card especial com celebration.json */}
+            {devocionalDoDia && (() => {
+              const dev = devocionais.find((d) => d.id === devocionalDoDia);
+              if (!dev) return null;
+              // --- Animação de expansão vertical (height) ---
+              const alturaAnimada = escalaCards[dev.id] || new Animated.Value(160);
+              escalaCards[dev.id] = alturaAnimada;
+
+              const handleExpandCard = (id) => {
+                setCardFocadoId(prev => (prev === id ? null : id));
+              };
+              // --- Fim da animação de expansão vertical ---
+              return (
+                <View key={dev.id}>
+                  <Animated.View
+                    style={{
+                      height: alturaAnimada,
+                      overflow: 'hidden',
+                      marginBottom: 24,
                     }}
-                    onLongPress={(e) => mostrarReacoes(e, dev.id)}
                   >
-                    {/* Check animado para devocional do dia */}
-                    {concluidos.includes(dev.id) && (
-                      <View style={[styles.checkAnimado, { top: 'auto', bottom: 10 }]}>
-                        <LottieView
-                          source={require('../../assets/animations/checkmark.json')}
-                          autoPlay
-                          loop={false}
-                          style={styles.animacaoCheck}
-                        />
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => handleExpandCard(dev.id)}
+                    >
+                      <View style={[
+                        styles.cardDia,
+                      ]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Feather name="message-circle" size={22} color="#d68536" style={{ marginRight: 8 }} />
+                            <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#d68536' }}>Devocional</Text>
+                          </View>
+                          {concluidos.includes(dev.id) && (
+                            <LottieView
+                              source={require('../../assets/animations/checkmark.json')}
+                              autoPlay
+                              loop={false}
+                              style={{ width: 36, height: 36, backgroundColor: 'transparent' }}
+                            />
+                          )}
+                        </View>
+
+                        {cardFocadoId === dev.id && (
+                          <>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: '#111' }}>
+                              {dev.versiculoBase}
+                            </Text>
+                            <View style={{ marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                              <TouchableOpacity
+                                style={{
+                                  flex: 1,
+                                  backgroundColor: '#111827',
+                                  paddingVertical: 10,
+                                  borderRadius: 8,
+                                  alignItems: 'center',
+                                }}
+                                onPress={() => {
+                                  setDevocionalSelecionado(dev);
+                                  setModalVisible(true);
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>LER</Text>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                              style={{
+                                flex: 1,
+                                backgroundColor: '#111827',
+                                paddingVertical: 10,
+                                borderRadius: 8,
+                                alignItems: 'center',
+                              }}
+                              onPress={() => {
+                                setDevocionalSelecionado(dev);
+                                setModalAudioVisible(true);
+                              }}
+                            >
+                              <Text style={{ color: '#fff', fontWeight: 'bold' }}>OUVIR</Text>
+                            </TouchableOpacity>
+                            </View>
+                          </>
+                        )}
                       </View>
-                    )}
-                    {dev.imagem && (
-                      <ExpoImage
-                        source={dev.imagem}
-                        style={[styles.cardImageGrande, !imagemCarregada[dev.id] && styles.imagemPlaceholder]}
-                        onLoadEnd={() => setImagemCarregada(prev => ({ ...prev, [dev.id]: true }))}
-                        contentFit="cover"
-                        transition={300}
-                      />
-                    )}
-                    <Text style={styles.destaqueDia}>Devocional do Dia</Text>
-                    <Text style={[styles.cardTitle, concluidos.includes(dev.id) && { textDecorationLine: 'line-through', color: '#9CA3AF' }]}>
-                      {dev.titulo}
-                    </Text>
-                    <Text style={styles.cardVerse}>{dev.versiculoBase}</Text>
-                    <Text style={styles.cardResumo} numberOfLines={3}>{dev.reflexao}</Text>
-                  </TouchableOpacity>
-                </Animated.View>
-                {reacoes[dev.id] && (
-                  <View style={styles.reacoesFixas}>
-                    {Object.entries(reacoes[dev.id]).map(([emoji, count]) => (
-                      <Text key={emoji} style={styles.reacaoItem}>
-                        {emoji} {count}
-                      </Text>
-                    ))}
-                  </View>
-                )}
-              </View>
-            );
-          })()}
-          <Text style={styles.outrosTitulo}>Outros Devocionais</Text>
-          {devocionais
-            .filter(dev => dev.id !== devocionalDoDia)
-            .map((dev) => (
-              <View key={dev.id}>
-                <Animated.View
-                  style={{
-                    transform: [{ scale: escalaCards[dev.id] || new Animated.Value(1) }],
-                    opacity: 1,
-                    height: 'auto',
-                  }}
-                >
-                  <TouchableOpacity
-                    style={styles.cardMenor}
-                    onPress={() => {
-                      setDevocionalSelecionado(dev);
-                      setModalVisible(true);
-                    }}
-                    onLongPress={(e) => mostrarReacoes(e, dev.id)}
-                  >
-                    {/* Check animado nos cards concluídos */}
-                    {concluidos.includes(dev.id) && (
-                      <View style={styles.checkAnimado}>
-                        <LottieView
-                          source={require('../../assets/animations/checkmark.json')}
-                          autoPlay
-                          loop={false}
-                          style={styles.animacaoCheck}
-                        />
-                      </View>
-                    )}
-                    <Text style={styles.diaSemana}>Devocional de {new Date(dev.data.split('/').reverse().join('-')).toLocaleDateString('pt-BR', { weekday: 'long' })}</Text>
-                    <Text style={[styles.cardTitle, concluidos.includes(dev.id) && { textDecorationLine: 'line-through', color: '#9CA3AF' }]}>
-                      {dev.titulo}
-                    </Text>
-                    <Text style={styles.cardVerse}>{dev.versiculoBase}</Text>
-                    <Text style={styles.cardResumo} numberOfLines={2}>{dev.reflexao}</Text>
-                  </TouchableOpacity>
-                </Animated.View>
-                {reacoes[dev.id] && (
-                  <View style={styles.reacoesFixas}>
-                    {Object.entries(reacoes[dev.id]).map(([emoji, count]) => (
-                      <Text key={emoji} style={styles.reacaoItem}>
-                        {emoji} {count}
-                      </Text>
-                    ))}
-                  </View>
-                )}
-              </View>
-            ))}
-        </ScrollView>
+                    </TouchableOpacity>
+                  </Animated.View>
+                </View>
+              );
+            })()}
+            
+
+          </ScrollView>
+        </Pressable>
 
         <Modal
           animationType="slide"
@@ -527,7 +629,7 @@ export default function Devocional() {
             )}
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
               <ScrollView
-                contentContainerStyle={[styles.modalContent, { paddingBottom: 40 }]}
+                contentContainerStyle={[styles.modalContent, { paddingBottom: 130 }]}
                 onScroll={(e) => {
                   const contentHeight = e.nativeEvent.contentSize.height;
                   const scrollY = e.nativeEvent.contentOffset.y;
@@ -569,7 +671,7 @@ export default function Devocional() {
                       )}
                       {devocionalSelecionado.imagem && (
                         <ExpoImage
-                          source={devocionalSelecionado.imagem}
+                          source={{ uri: devocionalSelecionado.imagem }}
                           style={[styles.modalImage, !imagemCarregada[devocionalSelecionado?.id] && styles.imagemPlaceholder]}
                           onLoadEnd={() => setImagemCarregada(prev => ({ ...prev, [devocionalSelecionado.id]: true }))}
                           contentFit="cover"
@@ -602,7 +704,7 @@ export default function Devocional() {
                     <View style={styles.autorContainer}>
                       {devocionalSelecionado.fotoAutor && (
                         <ExpoImage
-                          source={devocionalSelecionado.fotoAutor}
+                          source={{ uri: devocionalSelecionado.fotoAutor }}
                           style={[styles.autorFoto, styles.imagemPlaceholder]}
                           contentFit="cover"
                           transition={200}
@@ -640,86 +742,7 @@ export default function Devocional() {
             </View>
           </Pressable>
         )}
-        {cardFocadoId && emojiPopupVisible && (
-          <Pressable
-            style={styles.cardFocusOverlay}
-            onPress={() => {
-              setEmojiPopupVisible(false);
-              setCardFocadoId(null);
-            }}
-          >
-            <Animated.View style={[styles.cardFocusWrapper, { opacity: fadeAnim }]}>
-              <Pressable onPress={() => {}}>
-                {(() => {
-                  const dev =
-                    devocionais.find(d => d.id === cardFocadoId) ||
-                    (cardFocadoId === '0' && {
-                      id: '0',
-                      titulo: 'Título do Devocional de Hoje',
-                      versiculoBase: 'João 3:16',
-                      versiculoCompleto: 'Porque Deus amou o mundo de tal maneira que deu seu Filho unigênito...',
-                      reflexao: 'Essa é a maior prova do amor de Deus por nós.',
-                      autor: 'Equipe RHEMA',
-                      fotoAutor: 'https://picsum.photos/100',
-                      imagem: 'https://picsum.photos/600/300',
-                    });
-                  return (
-                    <View style={[styles.cardMenor, { width: '100%' }]}>
-                      <View style={{ position: 'relative' }}>
-                        {!imagemCarregada[dev.id] && (
-                          <LottieView
-                            source={require('../../assets/animations/loading.json')}
-                            autoPlay
-                            loop
-                            style={styles.loadingImagemCard}
-                          />
-                        )}
-                        {dev.imagem && (
-                          <ExpoImage
-                            source={dev.imagem}
-                            style={styles.cardImageGrande}
-                            onLoadEnd={() => setImagemCarregada(prev => ({ ...prev, [dev.id]: true }))}
-                            contentFit="cover"
-                            transition={300}
-                          />
-                        )}
-                      </View>
-                      <Text style={styles.diaSemana}>Devocional</Text>
-                      <Text style={styles.cardTitle}>{dev.titulo}</Text>
-                      <Text style={styles.cardVerse}>{dev.versiculoBase}</Text>
-                      <Text style={styles.cardResumo} numberOfLines={2}>{dev.reflexao}</Text>
-                    </View>
-                  );
-                })()}
-              </Pressable>
-              <View style={styles.emojiPopupFixed}>
-                {['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => (
-                  <Text
-                    key={emoji}
-                    style={styles.emojiOption}
-                    onPress={() => {
-                      setReacoes((prev) => {
-                        const atuais = prev[cardFocadoId] || {};
-                        const atual = atuais[emoji] || 0;
-                        return {
-                          ...prev,
-                          [cardFocadoId]: {
-                            ...atuais,
-                            [emoji]: atual + 1,
-                          },
-                        };
-                      });
-                      setEmojiPopupVisible(false);
-                      setCardFocadoId(null);
-                    }}
-                  >
-                    {emoji}
-                  </Text>
-                ))}
-              </View>
-            </Animated.View>
-          </Pressable>
-        )}
+        {/* Removido: card especial expandido com celebration.json */}
       </View>
       <Modal
         animationType="slide"
@@ -1068,7 +1091,7 @@ export default function Devocional() {
               {imagemSelecionada && (
                 <View style={{ position: 'relative', marginBottom: 12 }}>
                   {imagemSelecionada && (
-                    <ExpoImage source={imagemSelecionada} style={styles.cardImageGrande} contentFit="cover" transition={300} />
+                    <ExpoImage source={{ uri: imagemSelecionada }} style={styles.cardImageGrande} contentFit="cover" transition={300} />
                   )}
                   <LottieView
                     source={require('../../assets/animations/checkmark.json')}
@@ -1110,6 +1133,12 @@ export default function Devocional() {
           )}
         </KeyboardAvoidingView>
       </Modal>
+
+            <ModalAudioDevocional
+        visible={modalAudioVisible}
+        onClose={() => setModalAudioVisible(false)}
+        devocional={devocionalSelecionado}
+      />
   </>
   );
 }
@@ -1300,11 +1329,13 @@ const styles = StyleSheet.create({
   cardMenor: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 14,
-    marginBottom: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   diaSemana: {
     fontSize: 14,

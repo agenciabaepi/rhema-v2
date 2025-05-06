@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -52,9 +53,9 @@ export default function BibleScreen() {
 
   useEffect(() => {
     Notifications.getExpoPushTokenAsync().then(token => {
-      console.log('TOKEN:', token.data);
+      // console.log('TOKEN:', token.data);
     }).catch(error => {
-      console.log('Erro ao obter token:', error);
+      // console.log('Erro ao obter token:', error);
     });
   }, []);
 
@@ -101,7 +102,7 @@ export default function BibleScreen() {
         }
         if (finalStatus === 'granted') {
           const token = (await Notifications.getExpoPushTokenAsync()).data;
-          console.log('Expo push token:', token);
+          // console.log('Expo push token:', token);
         }
       }
     }
@@ -112,6 +113,17 @@ export default function BibleScreen() {
   useEffect(() => {
     fetchExistingNotes();
   }, [selectedVerseForNote]);
+
+  // Reseta estados ao sair da tela da Bíblia
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        setNoteModalVisible(false);
+        setVerseModalVisible(false);
+        setSelectedVerse(null);
+      };
+    }, [])
+  );
 
   const colorPalettes = [
     {
@@ -323,11 +335,20 @@ export default function BibleScreen() {
 
 
   const handleAddNote = () => {
+    // console.log('handleAddNote chamado. selectedVerse:', selectedVerse);
     if (selectedVerse) {
-      setSelectedVerseForNote(selectedVerse);
-      setNoteText('');
-      setVerseModalVisible(false); // FECHA a Modal de Versículo antes
-      setNoteModalVisible(true);   // Depois ABRE a Modal de Anotação
+      setVerseModalVisible(false);
+
+      // Aguarda a animação do modal fechar antes de abrir o novo
+      setTimeout(() => {
+        // console.log('noteModalVisible agora deve ser true');
+        setSelectedVerseForNote(selectedVerse);
+        setNoteText('');
+        fetchExistingNotes(); // garante que trará as anotações
+        setTimeout(() => {
+          setNoteModalVisible(true);
+        }, 50); // delay curto para garantir re-render com selectedVerseForNote preenchido
+      }, 400); // tempo suficiente para o modal anterior fechar
     }
   };
   const handleDeleteNote = async (noteId) => {
@@ -379,6 +400,10 @@ export default function BibleScreen() {
   const saveNote = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid || !selectedVerseForNote) return;
+    if (!noteText.trim()) {
+      alert('A anotação está vazia. Digite algo antes de salvar.');
+      return;
+    }
   
     try {
       const notesRef = collection(db, 'users', uid, 'anotacoes');
@@ -431,6 +456,8 @@ export default function BibleScreen() {
       showMessage('Erro ao editar!');  }
     
   };
+  // log do estado do noteModalVisible antes do return
+  // console.log('noteModalVisible:', noteModalVisible);
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -673,113 +700,70 @@ export default function BibleScreen() {
 
 
       <Modal
-  visible={noteModalVisible}
-  animationType="slide"
-  transparent={false}
-  onRequestClose={() => setNoteModalVisible(false)}
->
-  
-  <SafeAreaView style={styles.modalFullScreen}>
-              {localToast && (
-              <View style={{
-                position: 'absolute',
-                top: '90%',
-                left: '10%',
-                right: '10%',
-                backgroundColor: localToast.type === 'edit' ? '#d1fae5' : '#fef3c7',
-                padding: 16,
-                borderRadius: 8,
-                zIndex: 1000,
-                alignItems: 'center',
-              }}>
-                <Text style={{
-                  color: '#111',
-                  textAlign: 'center',
-                  fontSize: 16,
-                  fontWeight: '600'
-                }}>
-                  {localToast.message}
-                </Text>
-              </View>
-            )}
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              style={{ flex: 1 }}
-            >
-        <ScrollView
-          style={styles.modalContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          keyboardShouldPersistTaps="handled"
-        >
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-        <TouchableOpacity onPress={() => {
-          setNoteText('');
-          setEditingNoteId(null);
-          setNoteModalVisible(false);
-        }}>
-          <Text style={{ fontSize: 18, color: '#d68536', fontWeight: '600' }}>Voltar</Text>
-        </TouchableOpacity>
-        <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Anotação</Text>
-        <TouchableOpacity
-          onPress={saveNote}
-          disabled={!noteText.trim()}
-        >
-          <Text style={{ color: noteText.trim() ? '#d68536' : '#ccc', fontSize: 18, fontWeight: '600' }}>
-            {editingNoteId ? 'Salvar Edição' : 'Adicionar'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <TextInput
-        ref={noteInputRef}
-        placeholder="O que você gostaria de dizer?"
-        style={styles.noteInput}
-        multiline
-        value={noteText}
-        onChangeText={setNoteText}
-      />
-
-      {selectedVerseForNote && (
-        <View style={styles.noteVerseContainer}>
-          <Text style={styles.noteVerseText}>{selectedVerseForNote.texto}</Text>
-          <Text style={styles.noteVerseReference}>
-            {selectedVerseForNote.livro} {selectedVerseForNote.capitulo}:{selectedVerseForNote.versiculo}
-          </Text>
-        </View>
-      )}
-
-      {existingNotes.length > 0 && (
-        <View style={styles.existingNoteContainer}>
-          <Text style={styles.existingNoteTitle}>Anotações anteriores:</Text>
-          {existingNotes.map((note, index) => (
-            <View key={index} style={styles.singleNoteBox}>
-              <Text style={styles.existingNoteText}>• {note.anotacao}</Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
-  <TouchableOpacity onPress={() => {
-   setNoteText(note.anotacao);
-   setEditingNoteId(note.id);
-   setTimeout(() => {
-     noteInputRef.current?.focus();
-   }, 100);
-  }}>
-    <Text style={styles.editButton}>Editar</Text>
-  </TouchableOpacity>
-  <TouchableOpacity onPress={() => handleDeleteNote(note.id)} disabled={deletingNoteId === note.id}>
-  {deletingNoteId === note.id ? (
-    <ActivityIndicator size="small" color="#DC2626" />
-  ) : (
-    <Text style={styles.deleteButton}>Excluir</Text>
-  )}
-</TouchableOpacity>
-</View>
+        visible={noteModalVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setNoteModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 20 }}>
+              <TouchableOpacity onPress={() => setNoteModalVisible(false)}>
+                <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: 'bold' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveNote}>
+                <Text style={{ color: '#d68536', fontSize: 16, fontWeight: 'bold' }}>Salvar</Text>
+              </TouchableOpacity>
             </View>
-          ))}
-        </View>
-      )}
-    </ScrollView>
-    </KeyboardAvoidingView>
-  </SafeAreaView>
-</Modal>
+
+            <View style={{ paddingHorizontal: 20 }}>
+              {selectedVerseForNote ? (
+                <>
+                  <View style={styles.noteVerseContainer}>
+                    <Text style={styles.noteVerseReference}>
+                      {selectedVerseForNote.livro} {selectedVerseForNote.capitulo}:{selectedVerseForNote.versiculo}
+                    </Text>
+                    <Text style={styles.noteVerseText}>
+                      {selectedVerseForNote.texto}
+                    </Text>
+                  </View>
+
+                  <TextInput
+                    ref={noteInputRef}
+                    style={styles.noteInput}
+                    value={noteText}
+                    onChangeText={setNoteText}
+                    placeholder="Digite sua anotação aqui..."
+                    multiline
+                  />
+
+                  {existingNotes.length > 0 && (
+                    <View style={styles.existingNoteContainer}>
+                      <Text style={styles.existingNoteTitle}>Anotações anteriores</Text>
+                      {existingNotes.map((note) => (
+                        <View key={note.id} style={styles.singleNoteBox}>
+                          <Text style={styles.existingNoteText}>{note.anotacao}</Text>
+                          <TouchableOpacity onPress={() => {
+                            setNoteText(note.anotacao);
+                            setEditingNoteId(note.id);
+                          }}>
+                            <Text style={styles.editButton}>Editar</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => handleDeleteNote(note.id)}>
+                            <Text style={styles.deleteButton}>Excluir</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </>
+              ) : (
+                <Text style={{ textAlign: 'center', marginTop: 50 }}>Carregando versículo...</Text>
+              )}
+            </View>
+          </SafeAreaView>
+        </TouchableWithoutFeedback>
+      </Modal>
 
 
 
@@ -1141,3 +1125,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
   }
 });
+
+import { TouchableWithoutFeedback } from 'react-native';
