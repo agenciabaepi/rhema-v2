@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
+import Svg, { Circle } from 'react-native-svg';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import LottieView from 'lottie-react-native';
 import { KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Pressable, Platform, Alert, Animated, TextInput } from 'react-native';
 import { Image as ExpoImage } from 'react-native';
@@ -26,7 +28,11 @@ import ModalAudioDevocional from '../../components/ModalAudioDevocional';
 
 export default function Devocional() {
   const router = useRouter();
+  const [indexAtual, setIndexAtual] = useState(0);
+  const flatListRef = useRef(null);
   // Animated opacity for modal header
+  // Estado para o dia selecionado nos botões da semana
+  const [diaSelecionado, setDiaSelecionado] = useState(null);
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const [modalVisible, setModalVisible] = useState(false);
   const [devocionalSelecionado, setDevocionalSelecionado] = useState(null);
@@ -57,7 +63,9 @@ export default function Devocional() {
   const [versiculos, setVersiculos] = useState([]);
   const [livroSelecionado, setLivroSelecionado] = useState('');
   const [capituloSelecionado, setCapituloSelecionado] = useState('');
-  const [versiculoSelecionado, setVersiculoSelecionado] = useState('');
+  // Novo: intervalo de versículos
+  const [versiculoInicio, setVersiculoInicio] = useState('');
+  const [versiculoFim, setVersiculoFim] = useState('');
   // Modais customizadas para seleção
   const [modalLivroVisible, setModalLivroVisible] = useState(false);
   const [modalCapituloVisible, setModalCapituloVisible] = useState(false);
@@ -73,6 +81,8 @@ export default function Devocional() {
   const [devocionais, setDevocionais] = useState([]);
   // Estado para barra de progresso da modal de leitura
   const [scrollProgress, setScrollProgress] = useState(0);
+  // Estado para tipo da modal (devocional ou versiculo)
+  const [modalTipo, setModalTipo] = useState(null);
   // Estado para mostrar header fixo na modal de leitura
   const [mostrarHeaderFixo, setMostrarHeaderFixo] = useState(false);
 
@@ -120,7 +130,8 @@ export default function Devocional() {
       novoDevocional.reflexao.length < 10 ||
       !livroSelecionado ||
       !capituloSelecionado ||
-      !versiculoSelecionado
+      !versiculoInicio ||
+      !versiculoFim
     ) {
       Alert.alert('Preencha todos os campos obrigatórios corretamente.');
       return;
@@ -168,12 +179,14 @@ export default function Devocional() {
         urlImagem = await getDownloadURL(storageRef);
       }
 
-      // Montar versículoBase e versículoCompleto a partir da seleção
-      const versiculoBase = livroSelecionado && capituloSelecionado && versiculoSelecionado
-        ? `${livroSelecionado} ${capituloSelecionado}:${versiculoSelecionado}`
-        : '';
-        const livro = bibliaCompleta.find(l => l.name === livroSelecionado);
-        const versiculoCompleto = livro?.chapters[capituloSelecionado - 1]?.[versiculoSelecionado - 1] || '';
+      // Montar versículoBase e versículoCompleto a partir da seleção de intervalo
+      const versiculoBase = `${livroSelecionado} ${capituloSelecionado}:${versiculoInicio}-${versiculoFim}`;
+      const livro = bibliaCompleta.find(l => l.name === livroSelecionado);
+      const capitulo = livro?.chapters[capituloSelecionado - 1] || [];
+      const versiculoCompleto = capitulo.slice(
+        Number(versiculoInicio) - 1,
+        Number(versiculoFim)
+      ).join('\n');
 
       const devocionalRef = collection(db, 'devocionais');
       await addDoc(devocionalRef, {
@@ -197,7 +210,8 @@ export default function Devocional() {
       });
       setLivroSelecionado('');
       setCapituloSelecionado('');
-      setVersiculoSelecionado('');
+      setVersiculoInicio('');
+      setVersiculoFim('');
       setImagemSelecionada(null);
       setCheckTitulo(false);
       setCheckReflexao(false);
@@ -234,8 +248,9 @@ export default function Devocional() {
         setCapitulos([]);
       }
       setCapituloSelecionado('');
-      setVersiculoSelecionado('');
       setVersiculos([]);
+      setVersiculoInicio('');
+      setVersiculoFim('');
     }
   }, [livroSelecionado]);
 
@@ -245,7 +260,8 @@ export default function Devocional() {
       const livro = bibliaCompleta.find(l => l.name === livroSelecionado);
       const vers = livro?.chapters[capituloSelecionado - 1]?.map((_, index) => index + 1) || [];
       setVersiculos(vers);
-      setVersiculoSelecionado('');
+      setVersiculoInicio('');
+      setVersiculoFim('');
     }
   }, [capituloSelecionado]);
 
@@ -335,7 +351,7 @@ useEffect(() => {
   return () => unsubscribe();
 }, []);
 
-  // Seleciona o devocional mais recente como destaque
+  // Seleciona o devocional mais recente como destaque E marca o dia selecionado como o dia atual
   useEffect(() => {
     if (devocionais.length > 0) {
       const maisRecente = [...devocionais].sort((a, b) => {
@@ -346,6 +362,9 @@ useEffect(() => {
       if (maisRecente) {
         setDevocionalDoDia(maisRecente.id);
       }
+      const hoje = new Date();
+      const hojeStr = hoje.toLocaleDateString('pt-BR');
+      setDiaSelecionado(hojeStr);
     }
   }, [devocionais]);
 
@@ -367,6 +386,39 @@ useEffect(() => {
       console.error('Erro ao marcar como concluído:', error);
     }
   };
+
+  // Função para marcar versículo diário como concluído (igual estilo do concluirDevocional)
+  const concluirVersiculo = async (id) => {
+    try {
+      const auth = getAuth(app);
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const db = getFirestore(app);
+      const docRef = doc(db, 'users', currentUser.uid, 'versiculosConcluidos', id);
+      await setDoc(docRef, {
+        concluidoEm: Timestamp.now(),
+      });
+
+      setConcluidos((prev) => [...prev, id]);
+    } catch (error) {
+      console.error('Erro ao marcar versículo como concluído:', error);
+    }
+  };
+
+  // Adiciona o efeito para marcar o versículo como concluído ao voltar da tela de versiculo-diario
+  const params = useLocalSearchParams();
+  useEffect(() => {
+    if (params?.versiculoConcluido) {
+      const id = params.versiculoConcluido;
+      setConcluidos((prev) => {
+        if (!prev.includes(id)) {
+          return [...prev, id];
+        }
+        return prev;
+      });
+    }
+  }, [params?.versiculoConcluido]);
   // useEffect para animar expansão/retração dos cards do devocional do dia
   useEffect(() => {
     if (cardFocadoId && escalaCards[cardFocadoId]) {
@@ -390,14 +442,7 @@ useEffect(() => {
   const hoje = new Date();
   const hojeStr = hoje.toLocaleDateString('pt-BR');
   // Efeito para selecionar automaticamente o devocional do dia
-  useEffect(() => {
-    if (devocionais.length > 0) {
-      const encontrado = devocionais.find(d => d.data === hojeStr);
-      if (encontrado) {
-        setDevocionalDoDia(encontrado.id);
-      }
-    }
-  }, [devocionais]);
+  // (Removido: seleção automática duplicada, já está no useEffect acima)
 
   useEffect(() => {
     const buscarConcluidos = async () => {
@@ -406,8 +451,14 @@ useEffect(() => {
       if (!currentUser) return;
 
       const db = getFirestore(app);
-      const snap = await getDocs(collection(db, 'users', currentUser.uid, 'devocionaisConcluidos'));
-      const ids = snap.docs.map(doc => doc.id);
+      const snapDevocionais = await getDocs(collection(db, 'users', currentUser.uid, 'devocionaisConcluidos'));
+      const snapVersiculos = await getDocs(collection(db, 'users', currentUser.uid, 'versiculosConcluidos'));
+
+      const ids = [
+        ...snapDevocionais.docs.map(doc => doc.id),
+        ...snapVersiculos.docs.map(doc => doc.id),
+      ];
+
       setConcluidos(ids);
     };
     buscarConcluidos();
@@ -438,53 +489,114 @@ useEffect(() => {
   return (
     <>
       <View style={styles.container}>
-        {isModeradorOuMaster && (
-          <TouchableOpacity style={styles.botaoCadastrar} onPress={() => setModalCadastroVisible(true)}>
-            <Text style={styles.botaoCadastrarTexto}>Cadastrar Devocional do Dia</Text>
-          </TouchableOpacity>
-        )}
-        <View style={{ marginTop: 16, marginBottom: 12 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            {/* Bolinhas dos dias da semana */}
-            {(() => {
-              const hoje = new Date();
-              const hojeStr = hoje.toLocaleDateString('pt-BR');
-              const diaSemanaAtual = hoje.getDay(); // 0 = domingo, 1 = segunda, ...
-              return (
-                [...Array(7)].map((_, index) => {
-                  const data = new Date();
-                  data.setDate(hoje.getDate() - (hoje.getDay() - index)); // calcula data exata de cada dia da semana
-                  const dia = data.getDate();
-                  const mes = data.getMonth() + 1;
-                  const diaStr = `${('0'+dia).slice(-2)}/${('0'+mes).slice(-2)}/${data.getFullYear()}`;
-                  const diaSemana = data.toLocaleDateString('pt-BR', { weekday: 'short' }).toUpperCase();
-                  const encontrado = devocionais.find(d => d.data === diaStr);
-                  const selecionado = index === diaSemanaAtual;
-                  return (
-                    <TouchableOpacity
-                      key={index}
-                      onPress={() => {
-                        if (encontrado) {
-                          setDevocionalDoDia(encontrado.id);
-                        }
-                      }}
-                      style={{
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 2,
-                        borderColor: selecionado ? '#d68536' : '#E5E7EB',
-                        borderRadius: 24,
-                        width: 40,
-                        height: 40,
-                        backgroundColor: selecionado ? '#d68536' : '#F3F4F6'
-                      }}
-                    >
-                      <Text style={{ color: selecionado ? '#fff' : '#9CA3AF', fontSize: 10 }}>{diaSemana}</Text>
-                    </TouchableOpacity>
-                  );
-                })
-              );
-            })()}
+        <View style={{ paddingHorizontal: 16 }}>
+          {isModeradorOuMaster && (
+            <TouchableOpacity style={styles.botaoCadastrar} onPress={() => setModalCadastroVisible(true)}>
+              <Text style={styles.botaoCadastrarTexto}>Cadastrar Devocional do Dia</Text>
+            </TouchableOpacity>
+          )}
+          <View style={{ marginTop: 16, marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              {/* Bolinhas dos dias da semana */}
+              {(() => {
+                const hoje = new Date();
+                const hojeStr = hoje.toLocaleDateString('pt-BR');
+                return (
+                  [...Array(7)].map((_, index) => {
+                    const data = new Date();
+                    data.setHours(0,0,0,0);
+                    data.setDate(hoje.getDate() - (hoje.getDay() - index)); // calcula data exata de cada dia da semana
+                    const dia = data.getDate();
+                    const mes = data.getMonth() + 1;
+                    const diaStr = `${('0'+dia).slice(-2)}/${('0'+mes).slice(-2)}/${data.getFullYear()}`;
+                    // Mostrar apenas a inicial do dia da semana
+                    const diaSemana = data.toLocaleDateString('pt-BR', { weekday: 'short' }).toUpperCase().charAt(0);
+                    const encontrado = devocionais.find(d => d.data === diaStr);
+                    const selecionado = diaStr === diaSelecionado;
+                    // Comparação de datas: data (Date) e hoje (Date), ambos zerados hora/min/seg/ms
+                    const dataCmp = new Date(data.getFullYear(), data.getMonth(), data.getDate());
+                    const hojeCmp = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+                    // Lógica de progresso para barra linear
+                    const progresso = (() => {
+                      if (!encontrado) return 0;
+                      let total = 0;
+                      if (concluidos.includes(encontrado.id)) total += 0.5;
+                      if (concluidos.includes(`${encontrado.id}-versiculo`)) total += 0.5;
+                      return total;
+                    })();
+                    // Lógica para determinar as cores do anel de progresso
+                    let borderColors = {
+                      borderTopColor: progresso > 0 ? '#d68536' : 'transparent',
+                      borderRightColor: 'transparent',
+                      borderBottomColor: 'transparent',
+                      borderLeftColor: 'transparent',
+                    };
+                    if (progresso >= 0.5) {
+                      borderColors.borderRightColor = '#d68536';
+                    }
+                    if (progresso === 1) {
+                      borderColors.borderBottomColor = '#d68536';
+                      borderColors.borderLeftColor = '#d68536';
+                    }
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        onPress={() => {
+                          if (encontrado && dataCmp <= hojeCmp) {
+                            setDevocionalDoDia(encontrado.id);
+                            setDiaSelecionado(diaStr);
+                          }
+                        }}
+                        style={{ alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <View style={{ alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                          {/* Anel de progresso externo */}
+                          <View
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              width: 44,
+                              height: 44,
+                              borderRadius: 22,
+                              borderWidth: 3,
+                              borderColor: '#E5E7EB',
+                              borderTopColor: borderColors.borderTopColor,
+                              borderRightColor: borderColors.borderRightColor,
+                              borderBottomColor: borderColors.borderBottomColor,
+                              borderLeftColor: borderColors.borderLeftColor,
+                              zIndex: 2,
+                            }}
+                          />
+                         <View
+                           style={{
+                             width: 44,
+                             height: 44,
+                             borderRadius: 22,
+                             borderWidth: 2,
+                             borderColor: '#E5E7EB',
+                             backgroundColor: selecionado ? '#ffefd5' : (dataCmp > hojeCmp ? '#F3F4F6' : 'white'),
+                             alignItems: 'center',
+                             justifyContent: 'center',
+                             position: 'relative',
+                             zIndex: 1, // garantir que o círculo principal fique sobre o anel
+                           }}
+                         >
+                           {dataCmp > hojeCmp ? (
+                             <Feather name="lock" size={16} color="#9CA3AF" />
+                           ) : (
+                             <Text style={{ color: selecionado ? '#333' : '#9CA3AF', fontWeight: 'bold', fontSize: 17 }}>
+                               {diaSemana}
+                             </Text>
+                           )}
+                         </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                );
+              })()}
+            </View>
           </View>
         </View>
         <Pressable
@@ -495,35 +607,55 @@ useEffect(() => {
           }}
           style={{ flex: 1 }}
         >
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {/* Removido: card especial com celebration.json */}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 0 }}
+          >
+            {/* Cards Devocional e Versículo Diário agrupados em um único container vertical */}
             {devocionalDoDia && (() => {
               const dev = devocionais.find((d) => d.id === devocionalDoDia);
               if (!dev) return null;
-              // --- Animação de expansão vertical (height) ---
+
               const alturaAnimada = escalaCards[dev.id] || new Animated.Value(160);
               escalaCards[dev.id] = alturaAnimada;
 
               const handleExpandCard = (id) => {
                 setCardFocadoId(prev => (prev === id ? null : id));
               };
-              // --- Fim da animação de expansão vertical ---
+
               return (
-                <View key={dev.id}>
+                <View
+                  key={dev.id + '-cards'}
+                  style={{
+                    backgroundColor: '#f6f1e6',
+                    paddingVertical: 24,
+                    paddingHorizontal: 24,
+                    borderTopLeftRadius: 32,
+                    borderTopRightRadius: 32,
+                    width: '100%',
+                    flex: 1,
+                    minHeight: '100%',
+                    alignSelf: 'stretch',
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: '#9CA3AF', marginBottom: 4 }}>{dev.data}</Text>
+                  <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#111', marginBottom: 16 }}>
+                    {dev.titulo}
+                  </Text>
+
+                  {/* CARD 1 - Devocional */}
                   <Animated.View
                     style={{
                       height: alturaAnimada,
                       overflow: 'hidden',
-                      marginBottom: 24,
+                      marginBottom: -60,
                     }}
                   >
                     <TouchableOpacity
                       activeOpacity={0.9}
                       onPress={() => handleExpandCard(dev.id)}
                     >
-                      <View style={[
-                        styles.cardDia,
-                      ]}>
+                      <View style={[styles.cardDia]}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Feather name="message-circle" size={22} color="#d68536" style={{ marginRight: 8 }} />
@@ -554,7 +686,20 @@ useEffect(() => {
                                   alignItems: 'center',
                                 }}
                                 onPress={() => {
-                                  setDevocionalSelecionado(dev);
+                                  setDevocionalSelecionado({
+                                    ...dev,
+                                    versiculosArray: Array.isArray(dev.versiculoCompleto)
+                                      ? dev.versiculoCompleto
+                                      : (dev?.versiculoCompleto?.split('\n').filter(v => v.trim()) || []),
+                                    versiculoBase: dev.versiculoBase,
+                                    id: dev.id,
+                                    titulo: dev.titulo,
+                                    autor: dev.autor,
+                                    reflexao: dev.reflexao,
+                                    imagem: dev.imagem,
+                                    fotoAutor: dev.fotoAutor
+                                  });
+                                  setModalTipo('devocional');
                                   setModalVisible(true);
                                 }}
                               >
@@ -562,21 +707,87 @@ useEffect(() => {
                               </TouchableOpacity>
 
                               <TouchableOpacity
-                              style={{
-                                flex: 1,
-                                backgroundColor: '#111827',
-                                paddingVertical: 10,
-                                borderRadius: 8,
-                                alignItems: 'center',
-                              }}
-                              onPress={() => {
-                                setDevocionalSelecionado(dev);
-                                setModalAudioVisible(true);
-                              }}
-                            >
-                              <Text style={{ color: '#fff', fontWeight: 'bold' }}>OUVIR</Text>
-                            </TouchableOpacity>
+                                style={{
+                                  flex: 1,
+                                  backgroundColor: '#111827',
+                                  paddingVertical: 10,
+                                  borderRadius: 8,
+                                  alignItems: 'center',
+                                }}
+                                onPress={() => {
+                                  Alert.alert('Em breve!', 'O player de áudio está em construção. Aguarde novidades!');
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>OUVIR</Text>
+                              </TouchableOpacity>
                             </View>
+                          </>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  </Animated.View>
+
+                  {/* CARD 2 - Versículo Diário */}
+                  <Animated.View
+                    style={{
+                      height: cardFocadoId === dev.id + '-versiculo' ? 230 : 160,
+                      overflow: 'hidden',
+                      marginBottom: 0,
+                    }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        setCardFocadoId(prev => (prev === dev.id + '-versiculo' ? null : dev.id + '-versiculo'));
+                      }}
+                    >
+                      <View style={[styles.cardDia]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Feather name="book-open" size={22} color="#d68536" style={{ marginRight: 8 }} />
+                            <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#d68536' }}>Versículo Diário</Text>
+                          </View>
+                          {/* Mostra o checkmark se o versículo foi concluído, usando dev.id como base */}
+                          {concluidos.includes(`${dev.id}-versiculo`) && (
+                            <LottieView
+                              source={require('../../assets/animations/checkmark.json')}
+                              autoPlay
+                              loop={false}
+                              style={{ width: 36, height: 36, backgroundColor: 'transparent' }}
+                            />
+                          )}
+                        </View>
+                        {cardFocadoId === dev.id + '-versiculo' && (
+                          <>
+                            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: '#111' }}>
+                              {dev.versiculoBase}
+                            </Text>
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: '#d68536',
+                            paddingVertical: 10,
+                            borderRadius: 8,
+                            alignItems: 'center',
+                          }}
+                          onPress={() => {
+                            setDevocionalSelecionado({
+                              ...dev,
+                              versiculosArray: Array.isArray(dev.versiculoCompleto)
+                                ? dev.versiculoCompleto
+                                : (dev?.versiculoCompleto?.split('\n').filter(v => v.trim()) || []),
+                              versiculoBase: dev.versiculoBase,
+                              versiculoId: `${dev.id}-versiculo`,
+                              titulo: dev.titulo,
+                              livro: dev.versiculoBase?.split(' ')[0],
+                              capitulo: dev.versiculoBase?.split(' ')[1]?.split(':')[0],
+                              inicio: dev.versiculoBase?.split(':')[1]?.split('-')[0],
+                            });
+                            setModalTipo('versiculo');
+                            setModalVisible(true);
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: 'bold' }}>ABRIR VERSÍCULO</Text>
+                        </TouchableOpacity>
                           </>
                         )}
                       </View>
@@ -585,8 +796,6 @@ useEffect(() => {
                 </View>
               );
             })()}
-            
-
           </ScrollView>
         </Pressable>
 
@@ -658,67 +867,183 @@ useEffect(() => {
                 <Pressable onPress={() => setModalVisible(false)} style={styles.backButton}>
                   <Text style={{ fontSize: 30, fontWeight: 'bold' }}>←</Text>
                 </Pressable>
-                {devocionalSelecionado && (
+                {modalTipo === 'devocional' && devocionalSelecionado && (
                   <>
-                    <View style={{ position: 'relative' }}>
-                      {!imagemCarregada[devocionalSelecionado?.id] && (
-                        <LottieView
-                          source={require('../../assets/animations/loading.json')}
-                          autoPlay
-                          loop
-                          style={styles.loadingImagemCard}
+                    {devocionalSelecionado?.versiculoCompleto ? (
+                      <>
+                        <View style={{ position: 'relative' }}>
+                          {!imagemCarregada[devocionalSelecionado?.id] && (
+                            <LottieView
+                              source={require('../../assets/animations/loading.json')}
+                              autoPlay
+                              loop
+                              style={styles.loadingImagemCard}
+                            />
+                          )}
+                          {devocionalSelecionado.imagem && (
+                            <ExpoImage
+                              source={{ uri: devocionalSelecionado.imagem }}
+                              style={[styles.modalImage, !imagemCarregada[devocionalSelecionado?.id] && styles.imagemPlaceholder]}
+                              onLoadEnd={() => setImagemCarregada(prev => ({ ...prev, [devocionalSelecionado.id]: true }))}
+                              contentFit="cover"
+                              transition={300}
+                            />
+                          )}
+                        </View>
+                        <Text style={styles.modalTitle}>{devocionalSelecionado.titulo}</Text>
+                        <Text style={styles.modalVerse}>{devocionalSelecionado.versiculoBase}</Text>
+                        <Text style={styles.modalVerseText}>"{devocionalSelecionado.versiculoCompleto}"</Text>
+
+                        <View style={{ marginVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }} />
+
+                        <Text style={[styles.modalTitle, { fontSize: 18, marginBottom: 4 }]}>Reflexão do Dia</Text>
+                        <Text style={styles.modalBody}>{devocionalSelecionado.reflexao}</Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.concluirButton,
+                            concluidos.includes(devocionalSelecionado.id) && { backgroundColor: '#9CA3AF' }
+                          ]}
+                          onPress={() => concluirDevocional(devocionalSelecionado.id)}
+                          disabled={concluidos.includes(devocionalSelecionado.id)}
+                        >
+                          <Text style={styles.concluirText}>
+                            {concluidos.includes(devocionalSelecionado.id) ? 'Devocional já concluído' : 'Concluir Devocional'}
+                          </Text>
+                        </TouchableOpacity>
+                        <View style={styles.autorContainer}>
+                          {devocionalSelecionado.fotoAutor && (
+                            <ExpoImage
+                              source={{ uri: devocionalSelecionado.fotoAutor }}
+                              style={[styles.autorFoto, styles.imagemPlaceholder]}
+                              contentFit="cover"
+                              transition={200}
+                            />
+                          )}
+                          <View>
+                            <Text style={styles.autorLabel}>Autor(a)</Text>
+                            <Text style={styles.autorNome}>{devocionalSelecionado.autor}</Text>
+                          </View>
+                        </View>
+                      </>
+                    ) : (
+                      <Text style={{ textAlign: 'center', marginTop: 40, color: '#999' }}>Conteúdo indisponível para este devocional.</Text>
+                    )}
+                  </>
+                )}
+                {/* VERSÍCULO MODAL - stories/flatlist */}
+                {modalTipo === 'versiculo' && devocionalSelecionado && (
+                  <>
+                    {/* Barra de progresso */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 16 }}>
+                      {(devocionalSelecionado?.versiculosArray || []).map((_, idx) => (
+                        <View
+                          key={idx}
+                          style={{
+                            flex: 1,
+                            height: 4,
+                            marginHorizontal: 2,
+                            borderRadius: 10,
+                            backgroundColor: idx <= indexAtual ? '#d68536' : '#e5e7eb',
+                          }}
                         />
-                      )}
-                      {devocionalSelecionado.imagem && (
-                        <ExpoImage
-                          source={{ uri: devocionalSelecionado.imagem }}
-                          style={[styles.modalImage, !imagemCarregada[devocionalSelecionado?.id] && styles.imagemPlaceholder]}
-                          onLoadEnd={() => setImagemCarregada(prev => ({ ...prev, [devocionalSelecionado.id]: true }))}
-                          contentFit="cover"
-                          transition={300}
-                        />
-                      )}
+                      ))}
                     </View>
-                    {/* Ordem: título, versículo base, versículo completo entre aspas, reflexão */}
-                    <Text style={styles.modalTitle}>{devocionalSelecionado.titulo}</Text>
-                    <Text style={styles.modalVerse}>{devocionalSelecionado.versiculoBase}</Text>
-                    <Text style={styles.modalVerseText}>"{devocionalSelecionado.versiculoCompleto}"</Text>
-
-                    <View style={{ marginVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }} />
-
-                    <Text style={[styles.modalTitle, { fontSize: 18, marginBottom: 4 }]}>Reflexão do Dia</Text>
-
-                    <Text style={styles.modalBody}>{devocionalSelecionado.reflexao}</Text>
-                    <TouchableOpacity
-                      style={[
-                        styles.concluirButton,
-                        concluidos.includes(devocionalSelecionado.id) && { backgroundColor: '#9CA3AF' }
-                      ]}
-                      onPress={() => concluirDevocional(devocionalSelecionado.id)}
-                      disabled={concluidos.includes(devocionalSelecionado.id)}
-                    >
-                      <Text style={styles.concluirText}>
-                        {concluidos.includes(devocionalSelecionado.id) ? 'Devocional já concluído' : 'Concluir Devocional'}
+                    <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '600', color: '#666', marginTop: 16 }}>
+                      {devocionalSelecionado.livro} {devocionalSelecionado.capitulo}:{Number(devocionalSelecionado.inicio) + indexAtual}
+                    </Text>
+                    <View style={{ minHeight: 300, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+                      <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#d68536', marginBottom: 8 }}>
+                        {Number(devocionalSelecionado.inicio) + indexAtual} "
                       </Text>
-                    </TouchableOpacity>
-                    <View style={styles.autorContainer}>
-                      {devocionalSelecionado.fotoAutor && (
-                        <ExpoImage
-                          source={{ uri: devocionalSelecionado.fotoAutor }}
-                          style={[styles.autorFoto, styles.imagemPlaceholder]}
-                          contentFit="cover"
-                          transition={200}
-                        />
+                      {Array.isArray(devocionalSelecionado?.versiculosArray) &&
+                        devocionalSelecionado.versiculosArray[indexAtual] && (
+                          <Text style={{ fontSize: 24, fontWeight: 'bold', textAlign: 'center', lineHeight: 36 }}>
+                            {devocionalSelecionado.versiculosArray[indexAtual]}
+                          </Text>
                       )}
-                      <View>
-                        <Text style={styles.autorLabel}>Autor(a)</Text>
-                        <Text style={styles.autorNome}>{devocionalSelecionado.autor}</Text>
-                      </View>
                     </View>
+                    {/* Botões de navegação */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: 16 }}>
+                      <TouchableOpacity
+                        style={{
+                          padding: 12,
+                          borderRadius: 8,
+                          backgroundColor: indexAtual === 0 ? '#E5E7EB' : '#d68536',
+                          opacity: indexAtual === 0 ? 0.5 : 1,
+                        }}
+                        onPress={() => {
+                          if (indexAtual > 0) setIndexAtual(indexAtual - 1);
+                        }}
+                        disabled={indexAtual === 0}
+                      >
+                        <Feather name="chevron-left" size={24} color="#fff" />
+                      </TouchableOpacity>
+                      {indexAtual < devocionalSelecionado.versiculosArray.length - 1 ? (
+                        <TouchableOpacity
+                          style={{
+                            padding: 12,
+                            borderRadius: 8,
+                            backgroundColor: '#d68536',
+                          }}
+                          onPress={() => {
+                            if (indexAtual < devocionalSelecionado.versiculosArray.length - 1)
+                              setIndexAtual(indexAtual + 1);
+                          }}
+                        >
+                          <Feather name="chevron-right" size={24} color="#fff" />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                    {/* Botão de concluir versículo - agora dentro do ScrollView, logo após os versículos */}
+                    {modalTipo === 'versiculo' && devocionalSelecionado && indexAtual === devocionalSelecionado.versiculosArray.length - 1 && (
+                      <View style={{ marginHorizontal: 24, marginBottom: 24 }}>
+                        {concluidos.includes(devocionalSelecionado.versiculoId) ? (
+                          <View style={{
+                            backgroundColor: '#ccc',
+                            paddingVertical: 16,
+                            borderRadius: 30,
+                            alignItems: 'center',
+                          }}>
+                            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
+                              VERSÍCULO DO DIA CONCLUÍDO
+                            </Text>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: '#d68536',
+                              paddingVertical: 16,
+                              borderRadius: 30,
+                              alignItems: 'center',
+                            }}
+                            onPress={async () => {
+                              const auth = getAuth(app);
+                              const user = auth.currentUser;
+                              if (!user) return;
+                              try {
+                                const ref = doc(getFirestore(app), 'users', user.uid, 'versiculosConcluidos', devocionalSelecionado.versiculoId);
+                                await setDoc(ref, {
+                                  concluidoEm: Timestamp.now(),
+                                });
+                                setConcluidos(prev => [...prev, devocionalSelecionado.versiculoId]);
+                                setModalVisible(false);
+                              } catch (e) {
+                                console.error('Erro ao concluir versículo:', e);
+                              }
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
+                              CONCLUIR VERSÍCULO
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                   </>
                 )}
               </ScrollView>
             </TouchableWithoutFeedback>
+
           </KeyboardAvoidingView>
         </Modal>
         {emojiPopupVisible && !cardFocadoId && (
@@ -756,7 +1081,7 @@ useEffect(() => {
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <ScrollView
-              contentContainerStyle={[styles.modalContent, { paddingBottom: 40 }]}
+              contentContainerStyle={[styles.modalContent, { paddingBottom: 120 }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
@@ -859,49 +1184,61 @@ useEffect(() => {
                   )}
                 </View>
               )}
-              {/* BOTÃO SELECIONAR VERSÍCULO */}
+              {/* SELEÇÃO DE INTERVALO DE VERSÍCULOS */}
               {versiculos.length > 0 && (
-                <View style={{ position: 'relative' }}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setModalVersiculoVisible(true);
-                      fadeVersiculoAnim.setValue(0);
-                      Animated.timing(fadeVersiculoAnim, {
-                        toValue: 1,
-                        duration: 250,
-                        useNativeDriver: true,
-                      }).start();
-                    }}
-                    style={styles.selectBox}
-                    disabled={!capituloSelecionado}
-                  >
-                    <Text>
-                      {versiculoSelecionado
-                        ? `Versículo ${versiculoSelecionado}`
-                        : 'Selecionar Versículo'}
-                    </Text>
-                  </TouchableOpacity>
-                  {checkVersiculo && (
-                    <LottieView
-                      source={require('../../assets/animations/checkmark.json')}
-                      autoPlay
-                      loop={false}
-                      style={{ width: 24, height: 24, position: 'absolute', right: 16, top: 12, backgroundColor: 'transparent', }}
-                    />
-                  )}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Versículo Inicial</Text>
+                    <TouchableOpacity
+                      style={styles.selectBox}
+                      onPress={() => {
+                        setModalVersiculoVisible(true);
+                        fadeVersiculoAnim.setValue(0);
+                        Animated.timing(fadeVersiculoAnim, {
+                          toValue: 1,
+                          duration: 250,
+                          useNativeDriver: true,
+                        }).start();
+                      }}
+                    >
+                      <Text>{versiculoInicio || 'Selecionar'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Versículo Final</Text>
+                    <TouchableOpacity
+                      style={styles.selectBox}
+                      onPress={() => {
+                        setModalVersiculoVisible(true);
+                        fadeVersiculoAnim.setValue(0);
+                        Animated.timing(fadeVersiculoAnim, {
+                          toValue: 1,
+                          duration: 250,
+                          useNativeDriver: true,
+                        }).start();
+                      }}
+                    >
+                      <Text>{versiculoFim || 'Selecionar'}</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
 
-              {versiculoSelecionado && (
+              {versiculoInicio && versiculoFim ? (
                 <Text style={styles.modalVerseText}>
                   {
-                    (
-                      bibliaCompleta.find(l => l.name === livroSelecionado)
-                        ?.chapters[capituloSelecionado - 1]?.[versiculoSelecionado - 1]
-                    ) || ''
+                    (() => {
+                      const livro = bibliaCompleta.find(l => l.name === livroSelecionado);
+                      const capitulo = livro?.chapters[capituloSelecionado - 1] || [];
+                      const versos = capitulo.slice(
+                        Number(versiculoInicio) - 1,
+                        Number(versiculoFim)
+                      );
+                      return versos.length > 0 ? versos.join('\n') : '';
+                    })()
                   }
                 </Text>
-              )}
+              ) : null}
       {/* MODAL LIVRO */}
       <Modal
         visible={modalLivroVisible}
@@ -941,7 +1278,6 @@ useEffect(() => {
                     setCheckCapitulo(false);
                     setCheckVersiculo(false);
                     setCapituloSelecionado('');
-                    setVersiculoSelecionado('');
                   }}
                 >
                   <Text>{item.nome}</Text>
@@ -989,7 +1325,6 @@ useEffect(() => {
                     setModalCapituloVisible(false);
                     setCheckCapitulo(true);
                     setCheckVersiculo(false);
-                    setVersiculoSelecionado('');
                   }}
                 >
                   <Text>{`Capítulo ${item}`}</Text>
@@ -1001,7 +1336,8 @@ useEffect(() => {
           </Animated.View>
         </Pressable>
       </Modal>
-      {/* MODAL VERSÍCULO */}
+
+      {/* MODAL VERSÍCULO: seleção visual de versículo inicial/final */}
       <Modal
         visible={modalVersiculoVisible}
         transparent
@@ -1028,14 +1364,18 @@ useEffect(() => {
             <Text style={styles.modalPickerTitle}>Selecione o Versículo</Text>
             <FlatList
               data={versiculos}
-              keyExtractor={(item) => item}
+              keyExtractor={(item) => item.toString()}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.pickerItem}
                   onPress={() => {
-                    setVersiculoSelecionado(item);
+                    if (!versiculoInicio) {
+                      setVersiculoInicio(item.toString());
+                    } else {
+                      setVersiculoFim(item.toString());
+                      setCheckVersiculo(true);
+                    }
                     setModalVersiculoVisible(false);
-                    setCheckVersiculo(true);
                   }}
                 >
                   <Text>{`Versículo ${item}`}</Text>
@@ -1150,7 +1490,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingTop: 0,
-    paddingHorizontal: 24,
+    paddingHorizontal: 0,
     backgroundColor: '#F9FAFB',
   },
   title: {
@@ -1311,7 +1651,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
-    marginBottom: 24,
+    marginBottom: 0,
     shadowColor: '#d68536',
     shadowOpacity: 0.2,
     shadowRadius: 6,
