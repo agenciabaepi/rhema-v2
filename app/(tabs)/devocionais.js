@@ -26,6 +26,7 @@ import ModalAudioDevocional from '../../components/ModalAudioDevocional';
 
 
 
+
 export default function Devocional() {
   const router = useRouter();
   const [indexAtual, setIndexAtual] = useState(0);
@@ -51,6 +52,10 @@ export default function Devocional() {
     titulo: '',
     reflexao: '',
   });
+  // Estado para data selecionada e check
+  const [dataSelecionada, setDataSelecionada] = useState('');
+  const [checkData, setCheckData] = useState(false);
+  const [mostrarDatePicker, setMostrarDatePicker] = useState(false);
   // Estados de check para validação dos campos do cadastro
   const [checkTitulo, setCheckTitulo] = useState(false);
   const [checkReflexao, setCheckReflexao] = useState(false);
@@ -131,7 +136,8 @@ export default function Devocional() {
       !livroSelecionado ||
       !capituloSelecionado ||
       !versiculoInicio ||
-      !versiculoFim
+      !versiculoFim ||
+      !dataSelecionada
     ) {
       Alert.alert('Preencha todos os campos obrigatórios corretamente.');
       return;
@@ -197,7 +203,7 @@ export default function Devocional() {
         autor: nomeAutor,
         fotoAutor: fotoAutor,
         imagem: urlImagem,
-        data: new Date().toLocaleDateString('pt-BR'),
+        data: dataSelecionada,
         criadoEm: Timestamp.now(),
         uid: currentUser.uid,
       });
@@ -218,6 +224,8 @@ export default function Devocional() {
       setCheckLivro(false);
       setCheckCapitulo(false);
       setCheckVersiculo(false);
+      setDataSelecionada('');
+      setCheckData(false);
       setCarregando(false);
     } catch (error) {
       setCarregando(false);
@@ -538,11 +546,11 @@ useEffect(() => {
                       borderColors.borderBottomColor = '#d68536';
                       borderColors.borderLeftColor = '#d68536';
                     }
-                    return (
+                  return (
                       <TouchableOpacity
                         key={index}
                         onPress={() => {
-                          if (encontrado && dataCmp <= hojeCmp) {
+                          if (encontrado && (dataCmp <= hojeCmp || isModeradorOuMaster)) {
                             setDevocionalDoDia(encontrado.id);
                             setDiaSelecionado(diaStr);
                           }
@@ -572,17 +580,17 @@ useEffect(() => {
                            style={{
                              width: 44,
                              height: 44,
-                             borderRadius: 22,
+                             borderRadius: 22, 
                              borderWidth: 2,
                              borderColor: '#E5E7EB',
-                             backgroundColor: selecionado ? '#ffefd5' : (dataCmp > hojeCmp ? '#F3F4F6' : 'white'),
+                             backgroundColor: selecionado ? '#ffefd5' : (dataCmp > hojeCmp && !isModeradorOuMaster ? '#F3F4F6' : 'white'),
                              alignItems: 'center',
                              justifyContent: 'center',
                              position: 'relative',
                              zIndex: 1, // garantir que o círculo principal fique sobre o anel
                            }}
                          >
-                           {dataCmp > hojeCmp ? (
+                           {dataCmp > hojeCmp && !isModeradorOuMaster ? (
                              <Feather name="lock" size={16} color="#9CA3AF" />
                            ) : (
                              <Text style={{ color: selecionado ? '#333' : '#9CA3AF', fontWeight: 'bold', fontSize: 17 }}>
@@ -828,9 +836,16 @@ useEffect(() => {
                 justifyContent: 'space-between',
                 zIndex: 20,
               }}>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
+                <Pressable
+                  onPress={() => {
+                    setModalVisible(false);
+                    setIndexAtual(0); // reinicia o índice de versículos
+                  }}
+                  style={{ zIndex: 30 }}
+                  pointerEvents="box-none"
+                >
                   <Text style={{ fontSize: 40, fontWeight: 'bold' }}>←</Text>
-                </TouchableOpacity>
+                </Pressable>
                 <View style={{ flex: 1, height: 4, backgroundColor: '#E5E7EB', marginLeft: 12 }}>
                   <View style={{ height: '100%', backgroundColor: '#d68536', width: `${scrollProgress * 100}%` }} />
                 </View>
@@ -864,9 +879,6 @@ useEffect(() => {
                 scrollEventThrottle={16}
               >
                 {/* Antiga barra de progresso removida, pois agora está no header fixo */}
-                <Pressable onPress={() => setModalVisible(false)} style={styles.backButton}>
-                  <Text style={{ fontSize: 30, fontWeight: 'bold' }}>←</Text>
-                </Pressable>
                 {modalTipo === 'devocional' && devocionalSelecionado && (
                   <>
                     {devocionalSelecionado?.versiculoCompleto ? (
@@ -951,49 +963,71 @@ useEffect(() => {
                     <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '600', color: '#666', marginTop: 16 }}>
                       {devocionalSelecionado.livro} {devocionalSelecionado.capitulo}:{Number(devocionalSelecionado.inicio) + indexAtual}
                     </Text>
-                    <View style={{ minHeight: 300, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
-                      <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#d68536', marginBottom: 8 }}>
-                        {Number(devocionalSelecionado.inicio) + indexAtual} "
-                      </Text>
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, height: 600 }}>
                       {Array.isArray(devocionalSelecionado?.versiculosArray) &&
                         devocionalSelecionado.versiculosArray[indexAtual] && (
-                          <Text style={{ fontSize: 24, fontWeight: 'bold', textAlign: 'center', lineHeight: 36 }}>
+                          <Text style={{ fontSize: 30, fontWeight: 'bold', textAlign: 'center', lineHeight: 30, marginTop:0 }}>
+                            <Text style={{ color: '#d68536' }}>{`${Number(devocionalSelecionado.inicio) + indexAtual} `}</Text>
                             {devocionalSelecionado.versiculosArray[indexAtual]}
                           </Text>
                       )}
                     </View>
-                    {/* Botões de navegação */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: 16 }}>
+                    {/* Botão de voltar sobreposto e funcional */}
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: 40,
+                        left: 20,
+                        zIndex: 30,
+                      }}
+                      pointerEvents="box-none"
+                    >
                       <TouchableOpacity
-                        style={{
-                          padding: 12,
-                          borderRadius: 8,
-                          backgroundColor: indexAtual === 0 ? '#E5E7EB' : '#d68536',
-                          opacity: indexAtual === 0 ? 0.5 : 1,
-                        }}
                         onPress={() => {
-                          if (indexAtual > 0) setIndexAtual(indexAtual - 1);
+                          setModalVisible(false);
+                          setIndexAtual(0);
                         }}
-                        disabled={indexAtual === 0}
+                        style={{
+                          backgroundColor: 'rgba(255,255,255,0.8)',
+                          padding: 8,
+                          borderRadius: 30,
+                        }}
                       >
-                        <Feather name="chevron-left" size={24} color="#fff" />
+                        <Text style={{ fontSize: 30, fontWeight: 'bold' }}>←</Text>
                       </TouchableOpacity>
-                      {indexAtual < devocionalSelecionado.versiculosArray.length - 1 ? (
-                        <TouchableOpacity
-                          style={{
-                            padding: 12,
-                            borderRadius: 8,
-                            backgroundColor: '#d68536',
-                          }}
-                          onPress={() => {
-                            if (indexAtual < devocionalSelecionado.versiculosArray.length - 1)
-                              setIndexAtual(indexAtual + 1);
-                          }}
-                        >
-                          <Feather name="chevron-right" size={24} color="#fff" />
-                        </TouchableOpacity>
-                      ) : null}
                     </View>
+
+                    {/* Áreas clicáveis estilo stories */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (indexAtual > 0) {
+                          setIndexAtual(indexAtual - 1);
+                        }
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: 0,
+                        width: '50%',
+                        zIndex: 10,
+                      }}
+                    />
+                    {indexAtual < devocionalSelecionado.versiculosArray.length - 1 && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setIndexAtual(indexAtual + 1);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          bottom: 0,
+                          right: 0,
+                          width: '50%',
+                          zIndex: 10,
+                        }}
+                      />
+                    )}
                     {/* Botão de concluir versículo - agora dentro do ScrollView, logo após os versículos */}
                     {modalTipo === 'versiculo' && devocionalSelecionado && indexAtual === devocionalSelecionado.versiculosArray.length - 1 && (
                       <View style={{ marginHorizontal: 24, marginBottom: 24 }}>
@@ -1039,6 +1073,10 @@ useEffect(() => {
                         )}
                       </View>
                     )}
+                    {/* Versão da bíblia */}
+                    <Text style={{ textAlign: 'center', fontSize: 12, color: '#9CA3AF', marginTop: 24 }}>
+                      Versão: NVI
+                    </Text>
                   </>
                 )}
               </ScrollView>
@@ -1085,11 +1123,118 @@ useEffect(() => {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <Pressable onPress={() => setModalCadastroVisible(false)} style={styles.backButton}>
+              <Pressable onPress={() => {
+                setModalCadastroVisible(false);
+                setCheckTitulo(false);
+                setCheckReflexao(false);
+                setCheckLivro(false);
+                setCheckCapitulo(false);
+                setCheckVersiculo(false);
+                setDataSelecionada('');
+                setCheckData(false);
+                setNovoDevocional({ titulo: '', reflexao: '' });
+                setLivroSelecionado('');
+                setCapituloSelecionado('');
+                setVersiculoInicio('');
+                setVersiculoFim('');
+                setImagemSelecionada(null);
+              }} style={styles.backButton}>
                 <Text style={{ fontSize: 40, fontWeight: 'bold' }}>←</Text>
               </Pressable>
 
               <Text style={styles.modalTitle}>Cadastrar Devocional</Text>
+
+              {/* Campo de seleção de data do devocional */}
+              <View style={{ position: 'relative' }}>
+                <TouchableOpacity
+                  style={styles.selectBox}
+                  onPress={() => setMostrarDatePicker(true)}
+                >
+                  <Text>{dataSelecionada || 'Selecionar Data do Devocional'}</Text>
+                </TouchableOpacity>
+                {checkData && (
+                  <LottieView
+                    source={require('../../assets/animations/checkmark.json')}
+                    autoPlay
+                    loop={false}
+                    style={{ width: 24, height: 24, position: 'absolute', right: 16, top: 12, backgroundColor: 'transparent' }}
+                  />
+                )}
+                {/* Modal customizada de seleção de data - substituído por calendário visual */}
+                <Modal visible={mostrarDatePicker} transparent animationType="fade">
+                  <Pressable style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.25)' }}
+                    onPress={() => setMostrarDatePicker(false)}>
+                    <View style={{
+                      backgroundColor: '#fff',
+                      padding: 16,
+                      borderTopLeftRadius: 20,
+                      borderTopRightRadius: 20,
+                      maxHeight: '60%',
+                    }}>
+                      <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#d68536', marginBottom: 12 }}>
+                        Selecione a Data do Devocional
+                      </Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d, i) => (
+                          <Text key={i} style={{ flex: 1, textAlign: 'center', fontWeight: 'bold', color: '#666' }}>{d}</Text>
+                        ))}
+                      </View>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                        {(() => {
+                          const now = new Date();
+                          const ano = now.getFullYear();
+                          const mes = now.getMonth();
+                          const primeiroDia = new Date(ano, mes, 1).getDay();
+                          const totalDias = new Date(ano, mes + 1, 0).getDate();
+
+                          return Array.from({ length: primeiroDia + totalDias }).map((_, i) => {
+                            if (i < primeiroDia) return <View key={i} style={{ width: '14.28%', aspectRatio: 1 }} />;
+                            const diaReal = i - primeiroDia + 1;
+                            const dia = ('0' + diaReal).slice(-2);
+                            const mesNum = ('0' + (mes + 1)).slice(-2);
+                            const dataStr = `${dia}/${mesNum}/${ano}`;
+                            const hoje = new Date();
+                            const dataCompleta = new Date(ano, mes, diaReal);
+                            dataCompleta.setHours(0, 0, 0, 0);
+                            hoje.setHours(0, 0, 0, 0);
+                            const jaPostado = devocionais.some((d) => d.data === dataStr);
+
+                            const isDisabled = dataCompleta < hoje || jaPostado;
+
+                            return (
+                              <TouchableOpacity
+                                key={i}
+                                style={{
+                                  width: '14.28%',
+                                  aspectRatio: 1,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: 6,
+                                  marginVertical: 4,
+                                  backgroundColor: dataSelecionada === dataStr ? '#d68536' : 'transparent',
+                                  opacity: isDisabled ? 0.3 : 1
+                                }}
+                                onPress={() => {
+                                  if (isDisabled) return;
+                                  setDataSelecionada(dataStr);
+                                  setCheckData(true);
+                                  setMostrarDatePicker(false);
+                                }}
+                                disabled={isDisabled}
+                              >
+                                <Text style={{
+                                  color: dataSelecionada === dataStr ? '#fff' : '#333',
+                                  fontWeight: '600'
+                                }}>{diaReal}</Text>
+                              </TouchableOpacity>
+                            );
+                          });
+                        })()}
+                      </View>
+                    </View>
+                  </Pressable>
+                </Modal>
+              </View>
 
               {/* Campo Título com contador regressivo e check */}
               <View style={{ position: 'relative' }}>
@@ -1131,6 +1276,8 @@ useEffect(() => {
               <View style={{ position: 'relative' }}>
                 <TouchableOpacity
                   onPress={() => {
+                    setModalCapituloVisible(false);
+                    setModalVersiculoVisible(false);
                     setModalLivroVisible(true);
                     fadeLivroAnim.setValue(0);
                     Animated.timing(fadeLivroAnim, {
@@ -1157,6 +1304,8 @@ useEffect(() => {
                 <View style={{ position: 'relative' }}>
                   <TouchableOpacity
                     onPress={() => {
+                      setModalLivroVisible(false);
+                      setModalVersiculoVisible(false);
                       setModalCapituloVisible(true);
                       fadeCapituloAnim.setValue(0);
                       Animated.timing(fadeCapituloAnim, {
@@ -1192,6 +1341,8 @@ useEffect(() => {
                     <TouchableOpacity
                       style={styles.selectBox}
                       onPress={() => {
+                        setModalLivroVisible(false);
+                        setModalCapituloVisible(false);
                         setModalVersiculoVisible(true);
                         fadeVersiculoAnim.setValue(0);
                         Animated.timing(fadeVersiculoAnim, {
@@ -1209,6 +1360,8 @@ useEffect(() => {
                     <TouchableOpacity
                       style={styles.selectBox}
                       onPress={() => {
+                        setModalLivroVisible(false);
+                        setModalCapituloVisible(false);
                         setModalVersiculoVisible(true);
                         fadeVersiculoAnim.setValue(0);
                         Animated.timing(fadeVersiculoAnim, {
@@ -1369,13 +1522,18 @@ useEffect(() => {
                 <TouchableOpacity
                   style={styles.pickerItem}
                   onPress={() => {
+                    setModalVersiculoVisible(false);
                     if (!versiculoInicio) {
                       setVersiculoInicio(item.toString());
-                    } else {
+                      setCheckVersiculo(false);
+                    } else if (!versiculoFim && item > versiculoInicio) {
                       setVersiculoFim(item.toString());
                       setCheckVersiculo(true);
+                    } else {
+                      setVersiculoInicio(item.toString());
+                      setVersiculoFim('');
+                      setCheckVersiculo(false);
                     }
-                    setModalVersiculoVisible(false);
                   }}
                 >
                   <Text>{`Versículo ${item}`}</Text>

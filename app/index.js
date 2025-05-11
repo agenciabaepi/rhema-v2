@@ -1,4 +1,5 @@
-// app/index.js
+
+import 'react-native-reanimated';
 import { useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter } from 'expo-router';
@@ -10,9 +11,9 @@ export default function Index() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        router.replace('/(tabs)/bible'); // vai direto pra Bíblia se logado
+        router.replace('/(tabs)');
       } else {
-        router.replace('/welcome'); // senão, vai pro welcome
+        router.replace('/welcome');
       }
     });
 

@@ -16,6 +16,7 @@ import {
   TextInput,
   Keyboard,
   Alert,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import bibleData from '../../assets/data/nvi.json';
@@ -29,7 +30,12 @@ import * as Device from 'expo-device';
 
 
 export default function BibleScreen() {
-  
+
+  // Barra de progresso dinâmica
+  const [contentHeight, setContentHeight] = useState(1);
+  const [visibleHeight, setVisibleHeight] = useState(1);
+
+  // Header state (no animation)
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedBook, setSelectedBook] = useState(bibleData[0]);
@@ -50,6 +56,23 @@ export default function BibleScreen() {
   const [existingNotes, setExistingNotes] = useState([]);
   const [localToast, setLocalToast] = useState(null);
   const noteInputRef = useRef(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const scrollViewRef = useRef(null);
+  const versePositionsRef = useRef({});
+
+  // Animated highlight value for fade effect
+  const highlightAnim = useRef(new Animated.Value(1)).current;
+
+  // Barra de progresso animada (scrollY)
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  // Interpolação do header animado
+  const headerTranslateY = scrollY.interpolate({
+    inputRange: [0, 100],
+    outputRange: [0, -160],
+    extrapolate: 'clamp',
+  });
 
   useEffect(() => {
     Notifications.getExpoPushTokenAsync().then(token => {
@@ -198,6 +221,33 @@ export default function BibleScreen() {
     }
   };
 
+  const handleSearch = () => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      setSearchResults([]);
+      return;
+    }
+
+    const results = [];
+    bibleData.forEach((book) => {
+      book.chapters.forEach((chapter, chapterIndex) => {
+        chapter.forEach((verse, verseIndex) => {
+          const combinedText = `${book.name} ${chapterIndex + 1}:${verseIndex + 1} ${verse}`;
+          if (combinedText.toLowerCase().includes(query)) {
+            results.push({
+              livro: book,
+              capitulo: chapterIndex,
+              versiculo: verseIndex,
+              texto: verse
+            });
+          }
+        });
+      });
+    });
+
+    setSearchResults(results);
+  };
+
   const chapterList = selectedBook.chapters.map((_, index) => index + 1);
   const verses = selectedBook.chapters[selectedChapter];
 
@@ -305,7 +355,6 @@ export default function BibleScreen() {
       texto: verseText,
     };
     setSelectedVerse(verse);
-    setSelectedColor(null);
     setVerseModalVisible(true);
   };
 
@@ -458,89 +507,280 @@ export default function BibleScreen() {
   };
   // log do estado do noteModalVisible antes do return
   // console.log('noteModalVisible:', noteModalVisible);
+
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => setBookModalVisible(true)} style={styles.bookButton}>
-          <Text style={styles.bookButtonText}>{selectedBook.name}</Text>
-        </TouchableOpacity>
+      {/* Cabeçalho fixo (inclui busca, botão do livro, capítulos e barra de navegação) */}
+      <Animated.View
+        style={[styles.headerAnimated, { transform: [{ translateY: headerTranslateY }] }]}
+        pointerEvents="box-none"
+      >
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={18} color="#d68536" style={styles.searchIcon} />
+          <TextInput
+            placeholder="Buscar por livro ou versículo..."
+            placeholderTextColor="#999"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onSubmitEditing={handleSearch}
+            style={styles.searchInput}
+          />
+        </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chapterList}
-          contentContainerStyle={styles.chapterListContainer}
-        >
-          {chapterList.map((chapter, index) => (
+        <View style={styles.header}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              Keyboard.dismiss();
+              setBookModalVisible(true);
+            }}
+            style={[styles.bookButton, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]}
+          >
+            <Ionicons name="book-outline" size={20} color="white" />
+            <Text style={styles.bookButtonText}>{selectedBook.name}</Text>
+          </TouchableOpacity>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chapterList}
+            contentContainerStyle={styles.chapterListContainer}
+          >
+            {chapterList.map((chapter, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[styles.chapterButton, selectedChapter === index && styles.activeChapterButton]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setSelectedChapter(index);
+                }}
+              >
+                <Text style={selectedChapter === index ? styles.activeChapterText : styles.chapterText}>
+                  {chapter}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        <View style={styles.navigationBar}>
+          <TouchableOpacity onPress={goToPreviousChapter}>
+            <Ionicons name="arrow-back" size={30} color="#d68536" />
+          </TouchableOpacity>
+          <Text style={styles.chapterTitle}>
+            {selectedBook.name} {selectedChapter + 1} - NVI
+          </Text>
+          <TouchableOpacity onPress={goToNextChapter}>
+            <Ionicons name="arrow-forward" size={30} color="#d68536" />
+          </TouchableOpacity>
+        </View>
+        {/* Barra de progresso DENTRO do cabeçalho animado */}
+        <View style={{ height: 4, backgroundColor: '#e5e7eb' }}>
+          <Animated.View
+            style={{
+              height: 4,
+              backgroundColor: '#d68536',
+              transform: [{
+                scaleX: scrollY.interpolate({
+                  inputRange: [0, Math.max(1, contentHeight - visibleHeight)],
+                  outputRange: [0, 1],
+                  extrapolate: 'clamp',
+                }),
+              }],
+            }}
+          />
+        </View>
+      </Animated.View>
+
+          {searchResults.length > 0 ? (
+        <ScrollView style={styles.verseContainer} contentContainerStyle={[styles.verseContent, { marginTop: 200 }]}>
+          {searchResults.map((result, index) => (
             <TouchableOpacity
               key={index}
-              style={[styles.chapterButton, selectedChapter === index && styles.activeChapterButton]}
-              onPress={() => setSelectedChapter(index)}
+              style={styles.verseLine}
+              onPress={() => {
+                setSelectedBook(result.livro);
+                setSelectedChapter(result.capitulo);
+                setSearchResults([]);
+                setTimeout(() => {
+                  const key = `${result.livro.abbrev}-${result.capitulo}-${result.versiculo}`;
+                  const y = versePositionsRef.current[key];
+                  if (typeof y === 'number') {
+                    scrollViewRef?.current?.scrollTo({ y, animated: true });
+
+                    // Garante um flash visual no versículo clicado (destaque temporário)
+                    const flashKey = `${result.livro.abbrev}-${result.capitulo}-${result.versiculo}`;
+                    const flashColor = '#fff8dc';
+                    setHighlights((prev) => ({
+                      ...prev,
+                      [flashKey]: flashColor,
+                    }));
+
+                    Animated.sequence([
+                      Animated.timing(highlightAnim, {
+                        toValue: 0.3,
+                        duration: 100,
+                        useNativeDriver: false,
+                      }),
+                      Animated.timing(highlightAnim, {
+                        toValue: 1,
+                        duration: 400,
+                        useNativeDriver: false,
+                      }),
+                    ]).start(() => {
+                      // Remove a cor após 1 segundo
+                      setTimeout(() => {
+                        setHighlights((prev) => {
+                          const updated = { ...prev };
+                          if (updated[flashKey] === flashColor) {
+                            delete updated[flashKey];
+                          }
+                          return updated;
+                        });
+                      }, 1000);
+                    });
+                  }
+                }, 500);
+              }}
             >
-              <Text style={selectedChapter === index ? styles.activeChapterText : styles.chapterText}>
-                {chapter}
+              <Text style={styles.verseText}>
+                <Text style={{ fontWeight: 'bold' }}>
+                  {result.livro.name} {result.capitulo + 1}:{result.versiculo + 1}
+                </Text>{' '}
+                {result.texto}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
-      </View>
 
-      <View style={styles.navigationBar}>
-        <TouchableOpacity onPress={goToPreviousChapter}>
-          <Text style={styles.navText}>Anterior</Text>
-        </TouchableOpacity>
-        <Text style={styles.chapterTitle}>
-          {selectedBook.name} {selectedChapter + 1} - NVI
-        </Text>
-        <TouchableOpacity onPress={goToNextChapter}>
-          <Text style={styles.navText}>Próximo</Text>
-        </TouchableOpacity>
-      </View>
 
-      <ScrollView
-        style={styles.verseContainer}
-        contentContainerStyle={styles.verseContent}
-        keyboardShouldPersistTaps="handled"
-        key={refreshKey}
-      >
-{verses.map((verse, idx) => {
-  const key = `${selectedBook.abbrev}-${selectedChapter}-${idx}`;
-  const isFavorite = favorites[key];
-  const verseColor = highlights[key] || '#4B5563';
-  const isAnnotated = annotatedVerses[key];
 
-  return (
-    <View key={idx} style={styles.verseLine}>
-        <TouchableOpacity onPress={() => handleVersePress(idx, verse)}>
-          
-        <Text style={[
-          styles.verseText,
-          isAnnotated && annotatedVerseStyle
-         ]}>
-      {/* Número do versículo e texto */}
-      {isFavorite ? (
-        <View style={styles.circleFavorite}>
-          <Text style={styles.circleFavoriteText}>
-            {idx + 1}
-          </Text>
-        </View>
       ) : (
-        <Text style={[styles.verseNumber, { color: '#000' }]}>
-          {idx + 1}
-        </Text>
-        
-      )} <Text> </Text>
+       
+          <>
 
-      <Text style={{ backgroundColor: verseColor !== '#4B5563' ? verseColor : 'transparent' }}>
-        {verse}
-      </Text>
-    </Text>
-  </TouchableOpacity>
 
-    </View>
-        );
-      })}
-    </ScrollView>
+          <Animated.ScrollView
+            style={{
+              paddingTop: 180,
+            }}
+            contentContainerStyle={[styles.verseContent]}
+            keyboardShouldPersistTaps="handled"
+            key={refreshKey}
+            ref={scrollViewRef}
+            onLayout={(e) => {
+              setVisibleHeight(e.nativeEvent.layout.height);
+            }}
+            onContentSizeChange={(w, h) => {
+              setContentHeight(h);
+            }}
+            onScroll={Animated.event(
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              {
+                useNativeDriver: false,
+                listener: (event) => {
+                  scrollY.setValue(event.nativeEvent.contentOffset.y);
+                }
+              }
+            )}
+            scrollEventThrottle={16}
+          >
+            {verses.map((verse, idx) => {
+              const key = `${selectedBook.abbrev}-${selectedChapter}-${idx}`;
+              const isFavorite = favorites[key];
+              const verseColor = highlights[key] || 'transparent';
+              const isAnnotated = annotatedVerses[key];
+              return (
+                <View
+                  key={idx}
+                  style={styles.verseLine}
+                  onLayout={(event) => {
+                    const layout = event.nativeEvent.layout;
+                    const verseKey = `${selectedBook.abbrev}-${selectedChapter}-${idx}`;
+                    versePositionsRef.current[verseKey] = layout.y;
+                  }}
+                >
+                  <TouchableOpacity onPress={() => handleVersePress(idx, verse)}>
+                    <Text style={[
+                      styles.verseText,
+                      isAnnotated && annotatedVerseStyle
+                    ]}>
+                      {isFavorite ? (
+                        <View style={styles.circleFavorite}>
+                          <Text style={styles.circleFavoriteText}>{idx + 1}</Text>
+                        </View>
+                      ) : (
+                        <Text style={[styles.verseNumber, { color: '#000' }]}>{idx + 1}</Text>
+                      )}{' '}
+                      {/* Destaque com animação de fade */}
+                      <Animated.Text
+                        style={{
+                          backgroundColor:
+                            verseColor === '#fff8dc'
+                              ? highlightAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [
+                                    'rgba(255, 248, 220, 0)',
+                                    'rgba(255, 248, 220, 1)'
+                                  ]
+                                })
+                              : verseColor,
+                        }}
+                      >
+                        {verse}
+                      </Animated.Text>
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </Animated.ScrollView>
+          {/* Botões Anterior e Próximo - sempre visíveis */}
+          <View style={{
+            position: 'absolute',
+            bottom: 120,
+            left: 20,
+            right: 20,
+            justifyContent: 'space-between',
+            flexDirection: 'row',
+            
+            zIndex: 999,
+          }}>
+            <TouchableOpacity onPress={goToPreviousChapter} style={{
+              width: 46,
+              height: 46,
+              borderRadius: 23,
+              backgroundColor: 'white',
+              alignItems: 'center',
+              justifyContent: 'center',
+              elevation: 3,
+              shadowColor: '#000',
+              shadowOpacity: 0.1,
+              shadowOffset: { width: 0, height: 2 },
+              shadowRadius: 3,
+            }}>
+              <Ionicons name="chevron-back" size={24} color="#d68536" />
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={goToNextChapter} style={{
+              width: 46,
+              height: 46,
+              borderRadius: 23,
+              backgroundColor: 'white',
+              alignItems: 'center',
+              justifyContent: 'center',
+              elevation: 3,
+              shadowColor: '#000',
+              shadowOpacity: 0.1,
+              shadowOffset: { width: 0, height: 2 },
+              shadowRadius: 3,
+            }}>
+              <Ionicons name="chevron-forward" size={24} color="#d68536" />
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
 
       {/* Modal de Livro */}
       <Modal
@@ -827,15 +1067,25 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#d68536',
     fontWeight: '600',
+    
   },
   header: {
     paddingTop: 10,
-    paddingBottom: 0,
+    paddingBottom: -90,
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    
+  },
+  headerAnimated: {
+    overflow: 'hidden',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: '#fff',
   },
   bookButton: {
-    marginTop: 10,
+    marginTop: 0,
     marginBottom: 10,
     backgroundColor: '#d68536',
     borderRadius: 8,
@@ -856,6 +1106,7 @@ const styles = StyleSheet.create({
   chapterListContainer: {
     paddingHorizontal: 4,
     alignItems: 'center',
+    
   },
   chapterButton: {
     minWidth: 36,
@@ -888,14 +1139,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginLeft: 20,
     marginRight: 20,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
     borderBottomColor: '#d68536',
+    
   },
   navText: {
     fontSize: 16,
     color: '#d68536',
     fontWeight: '600',
     paddingBottom: 10,
+    
   },
   chapterTitle: {
     fontSize: 16,
@@ -904,16 +1157,19 @@ const styles = StyleSheet.create({
   },
   verseContainer: {
     flex: 1,
-    margin: 10,
-    marginTop: 10,
+    // backgroundColor: 'blue',
   },
   verseContent: {
-    paddingBottom: 60,
+    paddingBottom: 400,
+    marginTop: 20,
+    // paddingTop: 0,
   },
   verseLine: {
+    
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 15,
+    margin: 10,
   },
   verseText: {
     fontSize: 20,
@@ -1123,7 +1379,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 10,
     paddingHorizontal: 5,
-  }
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginHorizontal: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB', // cor clara quase invisível
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    paddingLeft: 10,
+    paddingVertical: 4,
+  },
+  searchIcon: {
+    marginRight: 6,
+  },
 });
 
 import { TouchableWithoutFeedback } from 'react-native';

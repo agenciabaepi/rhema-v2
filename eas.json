@@ -7,11 +7,14 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "channel": "production"
+      "channel": "production",
+      "env": {
+    "EXPO_POD_INSTALL_ARGUMENTS": "--repo-update"
+  }
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview" 
     },
     "production": {
       "autoIncrement": true,
